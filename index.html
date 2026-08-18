@@ -221,7 +221,7 @@
 // ============== CONSTANTES ==============
 const UNIT_LABEL = {g:'Peso (g)', litro:'Litro', unidad:'Unidad'};
 const UNIT_TO_GRAMS = {g:1, litro:1000, unidad:50};
-const APP_VERSION = 'v2.1';
+const APP_VERSION = 'v2.2';
 const ICON = {
   recetas: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5v-13Z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5v-13Z"/></svg>',
   ingredientes: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6l1 3H8l1-3Z"/><path d="M6 6h12l-1.2 13.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.8L6 6Z"/><path d="M9.5 11h5"/></svg>',
@@ -243,9 +243,9 @@ function seedData(){
     {id:'maicena', name:'Maicena', unit:'g', price:1.5},
     {id:'polvo_hornear', name:'Polvo de hornear', unit:'g', price:3},
     {id:'sal', name:'Sal', unit:'g', price:0.5},
-    {id:'leche', name:'Leche', unit:'litro', price:900},
+    {id:'leche', name:'Leche', unit:'litro', price:1.1},
     {id:'limon_verde', name:'Limón verde', unit:'g', price:2},
-    {id:'huevo', name:'Huevo mediano', unit:'unidad', price:150},
+    {id:'huevo', name:'Huevo mediano', unit:'unidad', price:3.5},
     {id:'pimenton', name:'Pimentón dulce', unit:'g', price:6},
     {id:'pimienta_negra', name:'Pimienta negra', unit:'g', price:8},
     {id:'ajo_granulado', name:'Ajo granulado', unit:'g', price:7},
@@ -271,8 +271,8 @@ function seedData(){
     {id:'cebolleta', name:'Cebolleta', unit:'g', price:3},
     {id:'vinagre_manzana_g', name:'Vinagre de manzana (salsa)', unit:'g', price:2.5},
     {id:'piri_piri', name:'Piri piri', unit:'g', price:12},
-    {id:'agua_salmuera', name:'Agua (para salmuera)', unit:'litro', price:50},
-    {id:'vinagre_manzana_l', name:'Vinagre de manzana (salmuera)', unit:'litro', price:2000},
+    {id:'agua_salmuera', name:'Agua (para salmuera)', unit:'litro', price:0.05},
+    {id:'vinagre_manzana_l', name:'Vinagre de manzana (salmuera)', unit:'litro', price:3},
     {id:'sal_gruesa', name:'Sal gruesa', unit:'g', price:0.6},
     {id:'pimienta_grano', name:'Pimienta en grano', unit:'g', price:10},
     {id:'eneldo_seco', name:'Eneldo seco', unit:'g', price:15},
@@ -424,6 +424,13 @@ function fmtQty(qty, unit){
   return qty.toLocaleString('es-ES',{maximumFractionDigits:2}) + ' ' + (unit==='litro'?'L':'ud');
 }
 
+// Los precios de ingredientes se cargan en €/kg (o €/L para líquidos, €/unidad para piezas —
+// ver UNIT_TO_GRAMS). Esta función devuelve el precio ya convertido a la unidad nativa
+// que usan las recetas (por gramo, por litro o por unidad), lista para multiplicar por la cantidad.
+function pricePerBaseUnit(ing){
+  return ing.price * (UNIT_TO_GRAMS[ing.unit]||1) / 1000;
+}
+
 function subCostPerGram(code, seen){
   seen = seen || new Set();
   if(seen.has(code)) return 0; // evita ciclos
@@ -434,7 +441,7 @@ function subCostPerGram(code, seen){
   r.lines.forEach(l=>{
     if(l.kind==='ing'){
       const ing = getIng(l.ref); if(!ing) return;
-      cost += l.qty * ing.price;
+      cost += l.qty * pricePerBaseUnit(ing);
       grams += l.qty * (UNIT_TO_GRAMS[ing.unit]||1);
     } else {
       const cpg = subCostPerGram(l.ref, seen);
@@ -453,9 +460,10 @@ function breakdown(code, multiplier){
       const ing = getIng(l.ref);
       if(!ing){ lines.push({name:'(ingrediente eliminado)', qty:0, unit:'g', price:0, cost:0, isSub:false, missing:true}); return; }
       const qty = l.qty * multiplier;
-      const cost = qty * ing.price;
+      const unitPrice = pricePerBaseUnit(ing);
+      const cost = qty * unitPrice;
       const grams = qty * (UNIT_TO_GRAMS[ing.unit]||1);
-      lines.push({name:ing.name, qty, unit:ing.unit, price:ing.price, cost, isSub:false});
+      lines.push({name:ing.name, qty, unit:ing.unit, price:unitPrice, cost, isSub:false});
       totalCost += cost; totalGrams += grams;
     } else {
       const sr = getRecipe(l.ref);
@@ -530,7 +538,7 @@ function renderIngredientes(){
     <div class="card no-print">
       <h3>Catálogo (${DATA.ingredients.length})</h3>
       <table id="ing-table">
-        <thead><tr><th>Ingrediente</th><th class="num">Unidad</th><th class="num">Precio</th><th class="num no-print"></th></tr></thead>
+        <thead><tr><th>Ingrediente</th><th class="num">Unidad</th><th class="num">Precio (€/kg · €/L · €/ud)</th><th class="num no-print"></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div id="ing-empty-search"></div>
@@ -544,7 +552,7 @@ function renderIngredientes(){
         </div>
       </div>
       <table class="report-table">
-        <thead><tr><th>Ingrediente</th><th class="num">Unidad</th><th class="num">Precio</th></tr></thead>
+        <thead><tr><th>Ingrediente</th><th class="num">Unidad</th><th class="num">Precio (€/kg · €/L · €/ud)</th></tr></thead>
         <tbody>${reportRows}</tbody>
       </table>
       <div class="report-footer">Tío Pollo — Sistema de Recetario</div>
@@ -589,7 +597,9 @@ function openAddIngredientModal(){
     <div class="field"><label>Unidad</label>
       <select id="m-ing-unit">${Object.entries(UNIT_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select>
     </div>
-    <div class="field"><label>Precio por unidad</label><input id="m-ing-price" type="number" step="0.1" placeholder="0"></div>
+    <div class="field"><label>Precio por Kilo / Litro / Unidad (€)</label><input id="m-ing-price" type="number" step="0.1" placeholder="0">
+      <p class="muted" style="font-size:11.5px;margin:4px 0 0;">Si la unidad es Peso (g), ingresa el precio por kilo. Si es Litro, el precio por litro. Si es Unidad, el precio por pieza.</p>
+    </div>
     <div class="modal-actions">
       <button class="btn secondary" id="m-cancel">Cancelar</button>
       <button class="btn" id="m-save">Guardar ingrediente</button>
@@ -1091,7 +1101,7 @@ function round4(n){ return Math.round((n||0)*10000)/10000; }
 
 // ============== EXPORTAR A EXCEL (.xlsx real) ==============
 function buildIngredientesAOA(){
-  const rows = [['Cod','Ingrediente','Unidad','Precio']];
+  const rows = [['Cod','Ingrediente','Unidad','Precio (€/kg · €/L · €/ud)']];
   DATA.ingredients.forEach((ing,idx)=> rows.push([1001+idx, ing.name, UNIT_LABEL[ing.unit], ing.price]));
   return rows;
 }
